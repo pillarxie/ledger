@@ -1,0 +1,17 @@
+# 统一换行符为 LF。
+#
+# 这个项目要在 Linux 容器里执行 shell 脚本。如果 .sh 带上了 CRLF 换行
+# （Windows 上 clone、或者 core.autocrlf=true 时会发生），容器启动会报：
+#   /bin/sh: can't open '/usr/local/bin/docker-entrypoint.sh'
+# 或者 exec format error / bad interpreter。
+#
+# 这类问题在本地完全看不出来，只在服务器上炸，所以在这里强制约束。
+
+* text=auto
+
+*.sh                 text eol=lf
+Dockerfile           text eol=lf
+docker-compose*.yml  text eol=lf
+*.yml                text eol=lf
+*.yaml               text eol=lf
+.prisma              text eol=lf

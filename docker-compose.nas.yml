@@ -1,0 +1,104 @@
+# 飞牛 OS(NAS) 生产部署用 Compose 文件
+#
+#   docker compose -f docker-compose.nas.yml up -d --build
+#
+# 与开发用的 docker-compose.yml 的区别：
+#   - Postgres / Redis 不再映射到宿主机端口，只在内部网络暴露
+#   - 数据与上传文件落到 NAS 的可见目录（DATA_DIR），方便备份
+#   - api 容器启动时自动执行数据库迁移
+#   - 只对外暴露 API 端口（API_PORT）
+#
+# 所有可调参数都从同目录的 .env 读取。
+
+name: ledger
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ledger-service:latest
+    container_name: ledger-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 容器内固定用服务名互连，覆盖 .env 里的 localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      NODE_ENV: production
+      PORT: "3000"
+      RUN_MIGRATIONS: "true"
+    ports:
+      # 左边是 NAS 上对外暴露的端口，改 .env 里的 API_PORT
+      - "${API_PORT:-3000}:3000"
+    volumes:
+      - ${DATA_DIR:-./data}/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/docs"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: ledger-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # 中文排序/大小写行为更符合预期
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      # 不能只用 pg_isready：它只探测"服务是否接受连接"，
+      # 不校验 POSTGRES_DB 是否真的建出来了。首次初始化中途失败时，
+      # 库其实并不存在，pg_isready 却照样返回成功，故障会被推迟到
+      # api 反复重试迁移，非常难定位。这里补一次真实查询。
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -q && psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -tAc 'SELECT 1' >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ledger-redis
+    restart: unless-stopped
+    # refresh token 黑名单 / 登录失败计数 / 重置密码 token 都存在 Redis，
+    # 开启 AOF 保证 NAS 意外断电后数据不丢。
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - ${DATA_DIR:-./data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

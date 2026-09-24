@@ -1,0 +1,111 @@
+# 宝塔面板（公网服务器）部署用 Compose 文件
+#
+#   cd /www/wwwroot/ledger
+#   docker compose -f docker-compose.server.yml up -d --build
+#
+# 与 NAS 版（docker-compose.nas.yml）的关键区别：
+#
+#   1. API 端口只绑定在 127.0.0.1，公网无法直接访问 3002。
+#      外部流量一律走宝塔 nginx（80/443）反向代理进来，
+#      这样才能拿到 HTTPS、统一入口和访问日志。
+#   2. 数据目录用相对路径 ./data，跟着项目目录走，方便宝塔的
+#      文件管理器和备份插件直接操作。
+#
+# 架构：
+#   公网 → 宝塔 nginx(443, SSL) → 127.0.0.1:3002 → api 容器
+#                                                   ├── postgres（仅容器内网）
+#                                                   └── redis   （仅容器内网）
+
+name: ledger
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ledger-service:latest
+    container_name: ledger-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 容器内用服务名互连，覆盖 .env 里可能残留的 localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      NODE_ENV: production
+      PORT: "3000"
+      RUN_MIGRATIONS: "true"
+      # 公网部署默认关闭接口文档；需要时在 .env 里改成 true
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+    ports:
+      # API_BIND 决定谁能连上这个端口：
+      #   127.0.0.1（默认）= 只有本机 nginx 能连，走宝塔反向代理 + 域名 + HTTPS
+      #   0.0.0.0          = 公网可直接访问 http://服务器IP:3002/api（省事，但没有 HTTPS）
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3002}:3000"
+    volumes:
+      - ${DATA_DIR:-./data}/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: ledger-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      # 不能只用 pg_isready：它只探测"服务是否接受连接"，
+      # 不校验 POSTGRES_DB 是否真的建出来了。首次初始化中途失败时，
+      # 库其实并不存在，pg_isready 却照样返回成功，故障会被推迟到
+      # api 反复重试迁移，非常难定位。这里补一次真实查询。
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -q && psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -tAc 'SELECT 1' >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ledger-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - ${DATA_DIR:-./data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

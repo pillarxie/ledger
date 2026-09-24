@@ -1,0 +1,210 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 用户表
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  email         String    @unique
+  password      String    // 加密存储
+  avatar        String?
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // 关联
+  transactions  Transaction[]
+  accounts      Account[]
+  categories    Category[]
+  budgets       Budget[]
+  familyMembers FamilyMember[]
+  createdFamilies Family[] @relation("FamilyCreator")
+  syncLogs      SyncLog[]
+  
+  @@map("users")
+}
+
+// 账单表
+model Transaction {
+  id              String          @id @default(uuid())
+  userId          String
+  familyId        String?
+  type            TransactionType
+  amount          Decimal         @db.Decimal(15, 2)
+  categoryId      String
+  subCategoryId   String?
+  accountId       String
+  date            DateTime
+  note            String?
+  tags            String[]
+  location        String?
+  isFamilyShared  Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?       // 软删除
+  
+  // 关联
+  user            User            @relation(fields: [userId], references: [id])
+  family          Family?         @relation(fields: [familyId], references: [id])
+  category        Category        @relation(fields: [categoryId], references: [id])
+  account         Account         @relation(fields: [accountId], references: [id])
+  
+  @@index([userId, date])
+  @@index([familyId, date])
+  @@map("transactions")
+}
+
+// 分类表
+model Category {
+  id              String          @id @default(uuid())
+  userId          String
+  familyId        String?
+  name            String
+  type            TransactionType
+  icon            String
+  color           String
+  sortOrder       Int             @default(0)
+  isDefault       Boolean         @default(false)
+  isFamilyShared  Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // 关联
+  user            User            @relation(fields: [userId], references: [id])
+  family          Family?         @relation(fields: [familyId], references: [id])
+  transactions    Transaction[]
+  budgets         Budget[]
+
+  @@map("categories")
+}
+
+// 账户表
+model Account {
+  id                String    @id @default(uuid())
+  userId            String
+  name              String
+  type              AccountType
+  balance           Decimal   @db.Decimal(15, 2) @default(0)
+  icon              String
+  color             String
+  note              String?
+  sortOrder         Int       @default(0)
+  isIncludedInTotal Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // 关联
+  user              User      @relation(fields: [userId], references: [id])
+  transactions      Transaction[]
+  
+  @@map("accounts")
+}
+
+// 家庭表
+model Family {
+  id            String          @id @default(uuid())
+  name          String
+  description   String?
+  createdBy     String
+  inviteCode    String          @unique
+  inviteCodeExpiresAt DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  // 关联
+  creator       User            @relation("FamilyCreator", fields: [createdBy], references: [id])
+  members       FamilyMember[]
+  transactions  Transaction[]
+  categories    Category[]
+  budgets       Budget[]
+  
+  @@map("families")
+}
+
+// 家庭成员表
+model FamilyMember {
+  id        String      @id @default(uuid())
+  familyId  String
+  userId    String
+  role      FamilyRole  @default(member)
+  nickname  String?
+  joinedAt  DateTime    @default(now())
+  
+  // 关联
+  family    Family      @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id])
+  
+  @@unique([familyId, userId])
+  @@map("family_members")
+}
+
+// 预算表
+model Budget {
+  id          String        @id @default(uuid())
+  userId      String
+  familyId    String?
+  amount      Decimal       @db.Decimal(15, 2)
+  period      BudgetPeriod
+  categoryId  String?
+  startDate   DateTime
+  endDate     DateTime?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  // 关联
+  user        User          @relation(fields: [userId], references: [id])
+  family      Family?       @relation(fields: [familyId], references: [id])
+  category    Category?     @relation(fields: [categoryId], references: [id])
+
+  @@map("budgets")
+}
+
+// 同步日志表
+model SyncLog {
+  id          String    @id @default(uuid())
+  userId      String
+  deviceId    String
+  lastSyncAt  DateTime
+  createdAt   DateTime  @default(now())
+  
+  // 关联
+  user        User      @relation(fields: [userId], references: [id])
+  
+  @@unique([userId, deviceId])
+  @@map("sync_logs")
+}
+
+// 枚举类型
+enum TransactionType {
+  expense
+  income
+}
+
+enum AccountType {
+  cash
+  debitCard
+  creditCard
+  alipay
+  wechat
+  other
+}
+
+enum FamilyRole {
+  owner
+  admin
+  member
+}
+
+enum BudgetPeriod {
+  monthly
+  yearly
+}
