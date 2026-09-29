@@ -22,6 +22,8 @@ model User {
   
   // 关联
   transactions  Transaction[]
+  subscriptions Subscription[]
+  loans         Loan[]
   accounts      Account[]
   categories    Category[]
   budgets       Budget[]
@@ -50,6 +52,12 @@ model Transaction {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   deletedAt       DateTime?       // 软删除
+  subscriptionId String?
+  subscriptionInstallment Int?
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  loanId          String?
+  loanInstallment Int?
+  loan            Loan? @relation(fields: [loanId], references: [id])
   
   // 关联
   user            User            @relation(fields: [userId], references: [id])
@@ -57,6 +65,8 @@ model Transaction {
   category        Category        @relation(fields: [categoryId], references: [id])
   account         Account         @relation(fields: [accountId], references: [id])
   
+  @@unique([subscriptionId, subscriptionInstallment])
+  @@unique([loanId, loanInstallment])
   @@index([userId, date])
   @@index([familyId, date])
   @@map("transactions")
@@ -104,6 +114,8 @@ model Account {
   // 关联
   user              User      @relation(fields: [userId], references: [id])
   transactions      Transaction[]
+  subscriptions     Subscription[]
+  loans             Loan[]
   
   @@map("accounts")
 }
@@ -207,4 +219,47 @@ enum FamilyRole {
 enum BudgetPeriod {
   monthly
   yearly
+}
+
+model Loan {
+  id String @id @default(uuid())
+  userId String
+  accountId String
+  name String
+  principal Decimal @db.Decimal(15, 2)
+  annualRate Decimal @db.Decimal(8, 4)
+  years Int
+  startDate String
+  repaymentDay Int
+  repaymentMethod String
+  status String @default("active")
+  processedInstallments Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+  transactions Transaction[]
+  @@index([status])
+  @@map("loans")
+}
+
+model Subscription {
+  id String @id @default(uuid())
+  userId String
+  accountId String
+  name String
+  cycle String
+  amount Decimal @db.Decimal(15, 2)
+  firstChargeDate String
+  processedInstallments Int @default(0)
+  status String @default("active")
+  stoppedAt DateTime?
+  lastChargeDate String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+  transactions Transaction[]
+  @@index([status])
+  @@map("subscriptions")
 }

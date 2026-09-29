@@ -1,3 +1,5 @@
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { LoansModule } from './modules/loans/loans.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './health.controller';
@@ -33,6 +35,8 @@ import { SyncModule } from './modules/sync/sync.module';
     FamiliesModule,
     BudgetsModule,
     SyncModule,
+    LoansModule,
+    SubscriptionsModule,
   ],
   controllers: [HealthController],
 })

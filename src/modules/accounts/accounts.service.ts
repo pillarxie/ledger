@@ -128,6 +128,16 @@ export class AccountsService {
       throw new NotFoundException('账户不存在');
     }
 
+    const subscriptionCount = await this.prisma.subscription.count({ where: { accountId: id } });
+    if (subscriptionCount > 0) {
+      throw new ConflictException('该账户有关联续费项目，无法删除');
+    }
+
+    const loanCount = await this.prisma.loan.count({ where: { accountId: id } });
+    if (loanCount > 0) {
+      throw new ConflictException('该账户有关联贷款，无法删除');
+    }
+
     // 检查是否有关联账单（软删除的不计入）
     const transactionCount = await this.prisma.transaction.count({
       where: { accountId: id, deletedAt: null },

@@ -14,6 +14,8 @@ function buildPrismaMock() {
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
+    subscription: { count: jest.fn().mockResolvedValue(0) },
+    loan: { count: jest.fn().mockResolvedValue(0) },
     transaction: {
       count: jest.fn(),
     },
@@ -89,6 +91,20 @@ describe('AccountsService', () => {
   });
 
   describe('remove', () => {
+    it('有关联续费项目的账户不能删除，包括已停止项目', async () => {
+      prisma.account.findFirst.mockResolvedValue({ id: 'a-1' });
+      prisma.subscription.count.mockResolvedValue(1);
+      await expect(service.remove('u-1', 'a-1')).rejects.toThrow('该账户有关联续费项目，无法删除');
+      expect(prisma.subscription.count).toHaveBeenCalledWith({ where: { accountId: 'a-1' } });
+      expect(prisma.account.delete).not.toHaveBeenCalled();
+    });
+
+    it('有关联贷款的账户不能删除', async () => {
+      prisma.account.findFirst.mockResolvedValue({ id: 'a-1' });
+      prisma.loan.count.mockResolvedValue(1);
+      await expect(service.remove('u-1', 'a-1')).rejects.toThrow(ConflictException);
+      expect(prisma.account.delete).not.toHaveBeenCalled();
+    });
     it('只统计未删除的账单（软删除的不阻止删除）', async () => {
       prisma.account.findFirst.mockResolvedValue({ id: 'a-1' });
       prisma.transaction.count.mockResolvedValue(0);

@@ -19,6 +19,7 @@ import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter
 /* ------------------- 内存版 Prisma：仅满足 auth 路径需要 ------------------- */
 
 class InMemoryPrisma {
+  loan = { findMany: async () => [] };
   private users: any[] = [];
   user = {
     findFirst: async ({ where }: any) => {
